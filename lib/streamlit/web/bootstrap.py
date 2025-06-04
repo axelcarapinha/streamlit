@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import qrcode
 import sys
 from typing import Any, Final
 
@@ -213,9 +214,32 @@ def _print_url(is_running_hello: bool) -> None:
     cli_util.print_to_cli("  %s" % title_message, fg="blue", bold=True)
     cli_util.print_to_cli("")
 
+    network_url = None
+
     for url_name, url in named_urls:
         cli_util.print_to_cli(f"  {url_name}: ", nl=False, fg="blue")
         cli_util.print_to_cli(url, bold=True)
+        if url_name == "Network URL":
+            network_url = url
+
+    if network_url:
+        # Generate a QR code for the network URL
+        cli_util.print_to_cli("")
+        cli_util.print_to_cli("Visit page on mobile:", fg="blue")
+        cli_util.print_to_cli(f"{network_url}", bold=True)
+        cli_util.print_to_cli("")
+        
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        
+        qr.add_data(network_url)
+        qr.make(fit=True)
+
+        qr.print_ascii(invert=True) 
 
     cli_util.print_to_cli("")
 

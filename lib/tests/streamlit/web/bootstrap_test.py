@@ -18,7 +18,7 @@ import os.path
 import sys
 from io import StringIO
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, ANY
 
 from streamlit import config
 from streamlit.runtime.runtime import Runtime
@@ -418,6 +418,162 @@ class BootstrapPrintTest(IsolatedAsyncioTestCase):
                 "server.port": 8502,
             },
         )
+    
+    @patch("streamlit.net_util.get_external_ip", return_value=None) 
+    @patch("streamlit.net_util.get_internal_ip", return_value="192.168.1.100")
+    @patch("qrcode.QRCode") 
+    def test_print_qr_code(
+        self, mock_qrcode, mock_get_internal_ip, mock_get_external_ip
+    ):
+        mock_qr_instance = Mock() 
+        mock_qrcode.return_value = mock_qr_instance 
+
+        test_options = {
+            "server.port": 8501,
+            "server.baseUrlPath": "",
+            "server.sslCertFile": None, 
+            "server.headless": False,    
+            "global.developmentMode": False
+        }
+        
+        test_manual_settings = {
+            "browser.serverAddress": False, 
+            "server.address": False,      
+        }
+
+        mock_get_option = testutil.build_mock_config_get_option(test_options)
+        mock_is_manually_set = testutil.build_mock_config_is_manually_set(test_manual_settings)
+
+        with patch.object(config, "get_option", new=mock_get_option), \
+             patch.object(config, "is_manually_set", new=mock_is_manually_set):
+            bootstrap._print_url(is_running_hello=False) 
+
+        output = sys.stdout.getvalue() 
+        expected_network_url = "http://192.168.1.100:8501"
+
+        self.assertIn("Local URL: http://localhost:8501", output)
+        self.assertIn(f"Network URL: {expected_network_url}", output)
+        self.assertIn("Visit page on mobile:", output)
+        self.assertIn(f"{expected_network_url}", output)
+
+        mock_qrcode.assert_called_once_with(
+            version=1,
+            error_correction=ANY, 
+            box_size=10,
+            border=4,
+        )
+
+        mock_qr_instance.add_data.assert_called_once_with(expected_network_url)
+        mock_qr_instance.make.assert_called_once_with(fit=True) 
+        mock_qr_instance.print_ascii.assert_called_once_with(invert=True)
+
+    @patch("streamlit.net_util.get_external_ip", return_value="203.0.113.42")
+    @patch("streamlit.net_util.get_internal_ip", return_value="192.168.1.101")
+    @patch("qrcode.QRCode")
+    def test_prints_qr_code_when_headless_and_external_ip_present(
+        self, mock_qrcode, mock_get_internal_ip, mock_get_external_ip
+    ):
+        mock_qr_instance = Mock()
+        mock_qrcode.return_value = mock_qr_instance
+        test_options = {
+            "server.port": 8501,
+            "server.baseUrlPath": "",
+            "server.sslCertFile": None,
+            "server.headless": True,
+            "global.developmentMode": False
+        }
+
+        test_manual_settings = {
+            "browser.serverAddress": False,
+            "server.address": False,
+        }
+
+        mock_get_option = testutil.build_mock_config_get_option(test_options)
+        mock_is_manually_set = testutil.build_mock_config_is_manually_set(test_manual_settings)
+
+        with patch.object(config, "get_option", new=mock_get_option), \
+             patch.object(config, "is_manually_set", new=mock_is_manually_set):
+            bootstrap._print_url(is_running_hello=False)
+
+        output = sys.stdout.getvalue()
+        expected_network_url = "http://192.168.1.101:8501"
+
+        self.assertIn(f"Network URL: {expected_network_url}", output)
+        self.assertIn("External URL: http://203.0.113.42:8501", output)
+        self.assertIn("Visit page on mobile:", output)
+        self.assertIn(f"{expected_network_url}", output)
+        
+        mock_qrcode.assert_called_once()
+        mock_qr_instance.add_data.assert_called_once_with(expected_network_url) 
+        mock_qr_instance.print_ascii.assert_called_once_with(invert=True)
+
+    @patch("streamlit.net_util.get_external_ip", return_value=None)
+    @patch("streamlit.net_util.get_internal_ip", return_value=None) 
+    @patch("qrcode.QRCode")
+    def test_no_qr_code_without_network_url(
+        self, mock_qrcode, mock_get_internal_ip, mock_get_external_ip
+    ):
+        test_options = {
+            "server.port": 8501,
+            "server.baseUrlPath": "",
+            "server.sslCertFile": None,
+            "server.headless": False,
+            "global.developmentMode": False
+        }
+        test_manual_settings = {
+            "browser.serverAddress": False,
+            "server.address": False,
+        }
+        mock_get_option = testutil.build_mock_config_get_option(test_options)
+        mock_is_manually_set = testutil.build_mock_config_is_manually_set(test_manual_settings)
+
+        with patch.object(config, "get_option", new=mock_get_option), \
+             patch.object(config, "is_manually_set", new=mock_is_manually_set):
+            bootstrap._print_url(is_running_hello=False)
+
+        output = sys.stdout.getvalue()
+        self.assertIn("Local URL: http://localhost:8501", output)
+        self.assertNotIn("Network URL:", output)
+        self.assertNotIn("Visit page on mobile:", output)
+        mock_qrcode.assert_not_called()
+
+    @patch("streamlit.net_util.get_external_ip", return_value=None)
+    @patch("streamlit.net_util.get_internal_ip", return_value="192.168.1.100") 
+    @patch("streamlit.web.bootstrap.server_address_is_unix_socket", return_value=False)
+    @patch("qrcode.QRCode")
+    def test_no_qr_code_when_server_address_is_set( 
+        self, mock_qrcode, _mock_is_unix_socket, _mock_get_internal_ip, _mock_get_external_ip
+    ):
+        mock_qr_instance = Mock()
+        mock_qrcode.return_value = mock_qr_instance
+
+        test_options = {
+            "server.port": 8501,
+            "server.baseUrlPath": "",
+            "server.sslCertFile": None,
+            "server.headless": False,
+            "global.developmentMode": False,
+            "server.address": "0.0.0.0", 
+        }
+
+        test_manual_settings = {
+            "browser.serverAddress": False,
+            "server.address": True, 
+        }
+
+        mock_get_option = testutil.build_mock_config_get_option(test_options)
+        mock_is_manually_set = testutil.build_mock_config_is_manually_set(test_manual_settings)
+
+        with patch.object(config, "get_option", new=mock_get_option), \
+             patch.object(config, "is_manually_set", new=mock_is_manually_set):
+            bootstrap._print_url(is_running_hello=False)
+
+        output = sys.stdout.getvalue()
+
+        self.assertIn("URL: http://0.0.0.0:8501", output)
+        self.assertNotIn("Network URL:", output) 
+        self.assertNotIn("Visit page on mobile:", output)
+        mock_qrcode.assert_not_called()
 
 
 class BootstrapRunTest(IsolatedAsyncioTestCase):
